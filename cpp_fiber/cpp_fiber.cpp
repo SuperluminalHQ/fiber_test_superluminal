@@ -145,7 +145,7 @@ void func0(int a, int depth) {
     PERFORMANCEAPI_INSTRUMENT_DATA("func0", d.c_str());
 
     if (depth > 0) {
-        func0<10 * D>(a / 2, depth - 1);
+        func0<D>(a / 2, depth - 1);
     }
 
     func1(a);
