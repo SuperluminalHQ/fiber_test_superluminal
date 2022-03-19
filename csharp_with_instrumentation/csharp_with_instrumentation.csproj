@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+	  <RuntimeIdentifier>win-x64</RuntimeIdentifier> 
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SuperluminalPerf" Version="1.1.0" />
+  </ItemGroup>
+
+</Project>
