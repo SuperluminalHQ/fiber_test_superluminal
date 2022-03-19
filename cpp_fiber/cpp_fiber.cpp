@@ -49,7 +49,10 @@ thread_local Fiber* gCurrentFiber = nullptr;
 SpinLock gStackSpinLock;
 std::deque<Fiber*> gStack;
 
-
+// threadfunc loop over the fiber queue and schedule fiber in
+// first-in first-out manner. When a fiber return to the worker
+// thread, if gCurrentFiber is not null, the fiber is push back
+// to the queue and will be reschedule later.
 void threadfunc(int index) {
     PerformanceAPI::SetCurrentThreadName("Test - Work Thread");
     assert(gThreadFiber == nullptr);
@@ -72,7 +75,6 @@ void threadfunc(int index) {
             assert(gCurrentFiber->valid());
             gStack.pop_front();
             assert(gCurrentFiber->valid());
-            std::cout << "[Worker" << index << "] schedule fiber: " << gCurrentFiber->data << "\n";
         }
 
         SwitchToFiber(gCurrentFiber->handle);
@@ -81,13 +83,16 @@ void threadfunc(int index) {
             gStack.push_back(gCurrentFiber);
             gCurrentFiber = nullptr;
         }
-        Sleep(5);
     }
 
     ConvertFiberToThread();
 
 }
 
+// Dummy workload to do some long CPU work.
+// The workload switch back to the worker thread in the middle
+// so another fiber can be scheduled before this function finishes.
+template<int D>
 int workload(int t) {
     int N = t * 1000 * 2;
     std::string d = std::format("N = {}", N);
@@ -104,7 +109,8 @@ int workload(int t) {
     }
 
     assert(gThreadFiber->valid());
-    SwitchToFiber(gThreadFiber->handle);
+    SwitchToFiber(gThreadFiber->handle); // Comment this SwitchToFiber to make Superluminal give
+                                           // meaningful result
 
     {
         PERFORMANCEAPI_INSTRUMENT_DATA("Workload - Part2", data.c_str());
@@ -121,28 +127,35 @@ void func1(int a) {
     std::string d = std::format("a = {}", a);
     PERFORMANCEAPI_INSTRUMENT_DATA("func1", d.c_str());
 
-    workload(1000);
-    workload(200 + a);
-    workload(300);
+    workload<11>(1000);
+    workload<12>(200 + a);
+    workload<13>(300);
 }
 
 void func2(int a) {
     std::string d = std::format("a = {}", a);
     PERFORMANCEAPI_INSTRUMENT_DATA("func2", d.c_str());
-    workload(900);
-    workload(700 + a);
+    workload<21>(900);
+    workload<22>(700 + a);
 }
 
-void func0(int a) {
+template<int D>
+void func0(int a, int depth) {
     std::string d = std::format("a = {}", a);
     PERFORMANCEAPI_INSTRUMENT_DATA("func0", d.c_str());
 
+    if (depth > 0) {
+        func0<10 * D>(a / 2, depth - 1);
+    }
 
     func1(a);
-    workload(500);
+    workload<0>(500);
     func2(2 * a);
 }
 
+// The fiber func run func0 workload and return to the worker thread
+// Inside func0 there are some switch back to the work thread, so
+// the worker thread can schedule another fiber.
 void fiberFunc(void* data) {
 
     Fiber* f = (Fiber*)data;
@@ -155,14 +168,19 @@ void fiberFunc(void* data) {
 
     int seed = rand() % 1000;
     {
+        if ((f->data % 2) == 0) {
+            func0<1>(100 + seed, 2);
+        }
+        else {
 
-    func0(100 + seed);
+            func0<2>(100 + seed, 0);
+        }
     }
 
     std::cout << "[Fiber] End of fiber: " << f->data << "\n";
 
 
-    gCurrentFiber = nullptr;
+    gCurrentFiber = nullptr; // convention to tell the worker thread not to reschedule the fiber
     assert(gThreadFiber->valid());
     SwitchToFiber(gThreadFiber->handle);
 }
