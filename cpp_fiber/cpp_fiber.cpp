@@ -148,6 +148,10 @@ void func0(int a, int depth) {
         func0<D>(a / 2, depth - 1);
     }
 
+    if constexpr (D == 1) {
+        a *= 2;
+    }
+
     func1(a);
     workload<0>(500);
     func2(2 * a);
@@ -164,15 +168,14 @@ void fiberFunc(void* data) {
     PERFORMANCEAPI_INSTRUMENT_DATA("FiberFunc", d.c_str());
 
     assert(f == f1);
-    std::cout << "[Fiber] Start of fiber: " << f->data << "\n";
-
     int seed = rand() % 1000;
     {
         if ((f->data % 2) == 0) {
+            std::cout << "[Fiber] Start mode 1 fiber: " << f->data << "\n";
             func0<1>(100 + seed, 2);
         }
         else {
-
+            std::cout << "[Fiber] Start mode 2 fiber: " << f->data << "\n";
             func0<2>(100 + seed, 0);
         }
     }
