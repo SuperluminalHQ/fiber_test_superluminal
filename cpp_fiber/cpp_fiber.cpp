@@ -49,6 +49,10 @@ thread_local Fiber* gCurrentFiber = nullptr;
 SpinLock gStackSpinLock;
 std::deque<Fiber*> gStack;
 
+// Note (rovarma): helper macro to surround SwitchToFiber() with the required API calls (PerformanceAPI_BeginFiberSwitch / PerformanceAPI_EndFiberSwitch) needed to let Superluminal know about the
+// fiber switch
+#define SWITCH_TO_FIBER(Fiber) PerformanceAPI_BeginFiberSwitch((uint64_t)GetCurrentFiber(), (uint64_t)(Fiber)); SwitchToFiber((Fiber)); PerformanceAPI_EndFiberSwitch((uint64_t)GetCurrentFiber());
+
 // threadfunc loop over the fiber queue and schedule fiber in
 // first-in first-out manner. When a fiber return to the worker
 // thread, if gCurrentFiber is not null, the fiber is push back
@@ -61,6 +65,9 @@ void threadfunc(int index) {
     threadFiber.handle = ConvertThreadToFiber(nullptr);
     gThreadFiber = &threadFiber;
     assert(gThreadFiber->valid());
+
+	// Note (rovarma): Notify Superluminal that a fiber is starting
+    PerformanceAPI_RegisterFiber((uint64_t)GetCurrentFiber());
 
     while (true) {
         assert(gCurrentFiber == nullptr);
@@ -77,7 +84,7 @@ void threadfunc(int index) {
             assert(gCurrentFiber->valid());
         }
 
-        SwitchToFiber(gCurrentFiber->handle);
+        SWITCH_TO_FIBER(gCurrentFiber->handle);
         if (gCurrentFiber != nullptr) {
             std::lock_guard<SpinLock> lock(gStackSpinLock);
             gStack.push_back(gCurrentFiber);
@@ -85,8 +92,10 @@ void threadfunc(int index) {
         }
     }
 
-    ConvertFiberToThread();
+	// Note (rovarma): Notify Superluminal that a fiber is stopping
+    PerformanceAPI_UnregisterFiber((uint64_t)GetCurrentFiber());
 
+    ConvertFiberToThread();
 }
 
 // Dummy workload to do some long CPU work.
@@ -109,7 +118,7 @@ int workload(int t) {
     }
 
     assert(gThreadFiber->valid());
-    SwitchToFiber(gThreadFiber->handle); // Comment this SwitchToFiber to make Superluminal give
+    SWITCH_TO_FIBER(gThreadFiber->handle); // Comment this SwitchToFiber to make Superluminal give
                                            // meaningful result
 
     {
@@ -118,6 +127,9 @@ int workload(int t) {
             r += i * 11;
             r %= (r + 1);
         }
+
+		// Note (rovarma): Sleep a little bit to make the resulting profile more interesting (and take longer)
+        Sleep(100);
     }
 
     return r;
@@ -162,30 +174,40 @@ void func0(int a, int depth) {
 // the worker thread can schedule another fiber.
 void fiberFunc(void* data) {
 
+	// Note (rovarma): Notify Superluminal that a fiber is starting
+    PerformanceAPI_RegisterFiber((uint64_t)GetCurrentFiber());
+
     Fiber* f = (Fiber*)data;
     Fiber* f1 = (Fiber*)GetFiberData();
     std::string d = std::format("Fiber = {}", f->data);
-    PERFORMANCEAPI_INSTRUMENT_DATA("FiberFunc", d.c_str());
 
-    assert(f == f1);
-    int seed = rand() % 1000;
-    {
-        if ((f->data % 2) == 0) {
-            std::cout << "[Fiber] Start mode 1 fiber: " << f->data << "\n";
-            func0<1>(100 + seed, 2);
-        }
-        else {
-            std::cout << "[Fiber] Start mode 2 fiber: " << f->data << "\n";
-            func0<2>(100 + seed, 0);
-        }
-    }
+	// Note (rovarma): it's important that all instrumentation markers are closed before the fiber exits,
+	// which is why I've surrouned thise marker with a scope.
+	{
+		PERFORMANCEAPI_INSTRUMENT_DATA("FiberFunc", d.c_str());
 
-    std::cout << "[Fiber] End of fiber: " << f->data << "\n";
+		assert(f == f1);
+		int seed = rand() % 1000;
+		{
+			if ((f->data % 2) == 0) {
+				std::cout << "[Fiber] Start mode 1 fiber: " << f->data << "\n";
+				func0<1>(100 + seed, 2);
+			}
+			else {
+				std::cout << "[Fiber] Start mode 2 fiber: " << f->data << "\n";
+				func0<2>(100 + seed, 0);
+			}
+		}
 
+		std::cout << "[Fiber] End of fiber: " << f->data << "\n";
+	}
+
+	// Note (rovarma): Notify Superluminal that a fiber is stopping
+    PerformanceAPI_UnregisterFiber((uint64_t)GetCurrentFiber());
 
     gCurrentFiber = nullptr; // convention to tell the worker thread not to reschedule the fiber
     assert(gThreadFiber->valid());
-    SwitchToFiber(gThreadFiber->handle);
+    SWITCH_TO_FIBER(gThreadFiber->handle);
 }
 
 
@@ -201,6 +223,10 @@ int main()
     Fiber threadFiber;
     threadFiber.data = -1;
     threadFiber.handle =  ConvertThreadToFiber(nullptr);
+
+	// Note (rovarma): Notify Superluminal that a fiber is starting
+    PerformanceAPI_RegisterFiber((uint64_t)GetCurrentFiber());
+
     gThreadFiber = &threadFiber;
     assert(gThreadFiber->valid());
 
@@ -232,6 +258,9 @@ int main()
             DeleteFiber(fibers[i].handle);
         }
     }
+
+	// Note (rovarma): Notify Superluminal that a fiber is stopping
+    PerformanceAPI_UnregisterFiber((uint64_t)GetCurrentFiber());
 
     ConvertFiberToThread();
 }
