@@ -129,7 +129,7 @@ int workload(int t) {
         }
 
 		// Note (rovarma): Sleep a little bit to make the resulting profile more interesting (and take longer)
-        Sleep(100);
+        Sleep(200);
     }
 
     return r;
